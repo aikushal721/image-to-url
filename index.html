@@ -36,7 +36,7 @@ body{
   align-items:center;
   padding:48px 20px 24px;
 }
-.wrap{width:100%;max-width:960px;flex:1;}
+.wrap{width:100%;max-width:1040px;flex:1;}
 header{text-align:center;margin-bottom:32px;}
 .eyebrow{
   font-family:'JetBrains Mono',monospace;
@@ -125,7 +125,7 @@ input[type=file]{display:none;}
 }
 .gallery{
   display:grid;
-  grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns:repeat(auto-fill, minmax(270px, 1fr));
   gap:16px;
 }
 .empty{
@@ -170,10 +170,65 @@ input[type=file]{display:none;}
 .del-btn:hover{background:rgba(239,68,68,.25);}
 .del-btn svg{width:14px;height:14px;}
 
+.card-info{padding:12px 12px 8px;}
+.card-title-row{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:8px;
+  margin-bottom:5px;
+}
+.card-title{
+  font-family:'Space Grotesk',sans-serif;
+  font-weight:600;
+  font-size:14.5px;
+  color:var(--text);
+  outline:none;
+  border-radius:5px;
+  padding:1px 3px;
+  margin:-1px -3px;
+}
+.card-title:focus{background:var(--surface-2);box-shadow:0 0 0 1px var(--accent);}
+.card-category{
+  flex-shrink:0;
+  font-family:'JetBrains Mono',monospace;
+  font-size:9.5px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--purple);
+  background:rgba(167,139,250,.12);
+  border:1px solid rgba(167,139,250,.25);
+  border-radius:20px;
+  padding:3px 9px;
+  white-space:nowrap;
+  margin-top:1px;
+}
+.card-desc{
+  font-size:12px;
+  color:var(--text-dim);
+  line-height:1.5;
+  outline:none;
+  border-radius:5px;
+  padding:1px 3px;
+  margin:-1px -3px 8px;
+}
+.card-desc:focus{background:var(--surface-2);box-shadow:0 0 0 1px var(--accent);}
+.card-tags{
+  display:flex;flex-wrap:wrap;gap:5px;
+  margin-bottom:2px;
+}
+.tag{
+  font-family:'JetBrains Mono',monospace;
+  font-size:10px;
+  color:var(--text-faint);
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:20px;
+  padding:2px 8px;
+}
+
 .card-link-row{
   display:flex;align-items:center;gap:8px;
   padding:12px 12px 10px;
-  border-bottom:1px solid var(--border);
+  margin-top:6px;
+  border-top:1px solid var(--border);
 }
 .card-link-row code{
   flex:1;
@@ -201,7 +256,7 @@ input[type=file]{display:none;}
 
 .card-actions{
   display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;
-  padding:10px 12px 12px;
+  padding:0 12px 12px;
 }
 .mini-action{
   border:none;border-radius:9px;
@@ -239,13 +294,13 @@ footer{
   <header>
     <div class="eyebrow">Image → Link</div>
     <h1>Wallpaper Link Generator</h1>
-    <p>Upload wallpapers, get real public links back.<br>Everything you add stays here — preview, copy, download, or delete anytime.</p>
+    <p>Upload wallpapers, get real public links back — with title, description, category and tags auto-filled.<br>Everything you add stays here, and every text field is editable.</p>
   </header>
 
   <div class="dropzone" id="dropzone">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
     <div class="title">Drop images here, or click to upload</div>
-    <div class="sub">JPG or PNG · you can select more than one at a time</div>
+    <div class="sub" id="dropSub">JPG or PNG · you can select more than one at a time</div>
     <input type="file" id="fileInput" accept="image/png, image/jpeg, image/jpg" multiple>
   </div>
 
@@ -259,16 +314,19 @@ footer{
   <div class="gallery-label">Your wallpapers</div>
   <div class="gallery" id="gallery"></div>
 
-  <div class="hint">Every upload gets a real public link — paste it straight into your app. Saved on this device so it's here next time you visit.</div>
+  <div class="hint">Every upload gets a real public link — paste it straight into your app. Title, description, category and tags are auto-generated and editable; click on them to change.</div>
 </div>
 
 <footer>© 2026 Design By HK721. All rights reserved.</footer>
 
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
 <script>
 const IMGBB_API_KEY = '169753bcd7523627456391486bb4a498';
 const STORAGE_KEY = 'wallpaperGalleryHK721';
 
 const dropzone = document.getElementById('dropzone');
+const dropSub = document.getElementById('dropSub');
 const fileInput = document.getElementById('fileInput');
 const loadInput = document.getElementById('loadInput');
 const loadBtn = document.getElementById('loadBtn');
@@ -293,6 +351,78 @@ function saveGallery(items){
 
 let gallery = loadGallery();
 
+// ---------- image recognition ----------
+let modelPromise = null;
+function getModel(){
+  if(!modelPromise){
+    dropSub.textContent = 'Loading image recognition (first time only)…';
+    modelPromise = mobilenet.load().then(m=>{
+      dropSub.textContent = 'JPG or PNG · you can select more than one at a time';
+      return m;
+    });
+  }
+  return modelPromise;
+}
+getModel();
+
+const CATEGORY_MAP = {
+  Nature: ['mountain','valley','forest','sky','beach','ocean','sea','lake','sunset','sunrise','cliff','waterfall','tree','flower','landscape','volcano','desert','snow','field','coral','geyser','glacier','island'],
+  Animals: ['dog','cat','bird','lion','tiger','horse','fish','wolf','bear','elephant','monkey','fox','owl','butterfly','snake','shark','deer'],
+  Vehicles: ['car','sports car','truck','motorcycle','bike','airplane','ship','train','vehicle','convertible','jeep','race car'],
+  Architecture: ['building','castle','bridge','tower','church','skyscraper','house','palace','dome','monastery','library','mosque'],
+  Food: ['food','fruit','pizza','cake','dish','plate','vegetable','meal','dessert','ice cream'],
+  Technology: ['computer','phone','laptop','device','robot','screen','keyboard','joystick'],
+  People: ['person','man','woman','face','portrait','groom','bride'],
+  Abstract: ['pattern','texture','abstract','maze','honeycomb']
+};
+
+function toTitleCase(str){
+  return str.replace(/\b\w/g, c=> c.toUpperCase());
+}
+
+function cleanLabel(raw){
+  return raw.split(',')[0].trim();
+}
+
+function categorize(labels){
+  const lower = labels.map(l=> l.toLowerCase());
+  for(const [cat, keywords] of Object.entries(CATEGORY_MAP)){
+    if(lower.some(l=> keywords.some(k=> l.includes(k)))) return cat;
+  }
+  return 'General';
+}
+
+async function analyzeImage(imgEl){
+  try{
+    const model = await getModel();
+    const predictions = await model.classify(imgEl);
+    const labels = predictions.map(p=> cleanLabel(p.className));
+    const uniqueTags = [...new Set(labels.map(l=> l.toLowerCase()))].slice(0,5);
+    const topLabel = labels[0] || 'Wallpaper';
+    const title = toTitleCase(topLabel);
+    const category = categorize(labels);
+    const secondary = labels[1] ? labels[1].toLowerCase() : null;
+    const description = secondary
+      ? `A ${category.toLowerCase()} wallpaper featuring ${topLabel.toLowerCase()} and ${secondary}.`
+      : `A ${category.toLowerCase()} wallpaper featuring ${topLabel.toLowerCase()}.`;
+    return { title, description, category, tags: uniqueTags };
+  }catch(err){
+    console.error('Analysis failed', err);
+    return { title: 'Untitled Wallpaper', description: 'A wallpaper image.', category: 'General', tags: [] };
+  }
+}
+
+function fileToImageEl(file){
+  return new Promise((resolve, reject)=>{
+    const objUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = ()=> resolve({ img, objUrl });
+    img.onerror = reject;
+    img.src = objUrl;
+  });
+}
+
+// ---------- icons ----------
 function iconSvg(name){
   const icons = {
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
@@ -303,6 +433,7 @@ function iconSvg(name){
   return icons[name] || '';
 }
 
+// ---------- render ----------
 function renderGallery(){
   if(gallery.length === 0){
     galleryEl.innerHTML = '<div class="empty">No wallpapers yet — upload one above to get your first link.</div>';
@@ -312,10 +443,19 @@ function renderGallery(){
   gallery.forEach(item=>{
     const card = document.createElement('div');
     card.className = 'card';
+    const tagsHtml = (item.tags || []).map(t=> `<span class="tag">#${t}</span>`).join('');
     card.innerHTML = `
       <div class="card-image">
         <img src="${item.url}" alt="wallpaper" crossorigin="anonymous">
         <button class="del-btn" data-id="${item.id}" title="Delete">${iconSvg('trash')}</button>
+      </div>
+      <div class="card-info">
+        <div class="card-title-row">
+          <div class="card-title" contenteditable="true" data-id="${item.id}" data-field="title">${item.title}</div>
+          <span class="card-category">${item.category}</span>
+        </div>
+        <div class="card-desc" contenteditable="true" data-id="${item.id}" data-field="description">${item.description}</div>
+        <div class="card-tags">${tagsHtml}</div>
       </div>
       <div class="card-link-row">
         <code>${item.url}</code>
@@ -332,9 +472,9 @@ function renderGallery(){
 }
 renderGallery();
 
-function addToGallery(url){
+function addToGallery(entry){
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
-  gallery.unshift({ id, url, addedAt: Date.now() });
+  gallery.unshift({ id, addedAt: Date.now(), ...entry });
   saveGallery(gallery);
   renderGallery();
 }
@@ -361,16 +501,25 @@ async function handleFiles(fileList){
   }
   let done = 0;
   for(const file of files){
-    setStatus(`Uploading ${done + 1} of ${files.length}…`);
+    let objUrl = null;
     try{
+      setStatus(`Analyzing ${done + 1} of ${files.length}…`);
+      const { img, objUrl: ou } = await fileToImageEl(file);
+      objUrl = ou;
+      const meta = await analyzeImage(img);
+
+      setStatus(`Uploading ${done + 1} of ${files.length}…`);
       const url = await uploadToImgbb(file);
-      addToGallery(url);
+
+      addToGallery({ url, ...meta });
       done++;
     }catch(err){
       console.error(err);
       setStatus('Upload failed: ' + err.message, 'err');
+      if(objUrl) URL.revokeObjectURL(objUrl);
       return;
     }
+    if(objUrl) URL.revokeObjectURL(objUrl);
   }
   setStatus(`Uploaded ${done} image${done > 1 ? 's' : ''}.`, 'ok');
 }
@@ -386,18 +535,39 @@ fileInput.addEventListener('change', e=> handleFiles(e.target.files));
 });
 dropzone.addEventListener('drop', e=> handleFiles(e.dataTransfer.files));
 
-loadBtn.addEventListener('click', ()=>{
+loadBtn.addEventListener('click', async ()=>{
   const url = loadInput.value.trim();
   if(!url){ setStatus('Paste a link first.', 'err'); return; }
   setStatus('Checking link…');
   const testImg = new Image();
   testImg.crossOrigin = 'anonymous';
-  testImg.onload = ()=>{ addToGallery(url); loadInput.value=''; setStatus('Added to your gallery.', 'ok'); };
+  testImg.onload = async ()=>{
+    setStatus('Analyzing…');
+    const meta = await analyzeImage(testImg);
+    addToGallery({ url, ...meta });
+    loadInput.value='';
+    setStatus('Added to your gallery.', 'ok');
+  };
   testImg.onerror = ()=> setStatus('Could not load that link as an image.', 'err');
   testImg.src = url;
 });
 loadInput.addEventListener('keydown', e=>{ if(e.key==='Enter') loadBtn.click(); });
 
+// ---------- edit title/description ----------
+galleryEl.addEventListener('blur', (e)=>{
+  const el = e.target.closest('[contenteditable="true"]');
+  if(!el) return;
+  const id = el.dataset.id;
+  const field = el.dataset.field;
+  const value = el.textContent.trim();
+  const item = gallery.find(g=> g.id === id);
+  if(item){
+    item[field] = value || item[field];
+    saveGallery(gallery);
+  }
+}, true);
+
+// ---------- download / share helpers ----------
 function loadImageEl(url){
   return new Promise((resolve, reject)=>{
     const img = new Image();
