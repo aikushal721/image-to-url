@@ -219,21 +219,21 @@ footer{
   <div class="dropzone" id="dropzone">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
     <div class="title">Drop an image here, or click to upload</div>
-    <div class="sub">JPG or PNG · stored as a code you can reload later</div>
+    <div class="sub">JPG or PNG · uploads to a real public link</div>
     <input type="file" id="fileInput" accept="image/png, image/jpeg, image/jpg">
   </div>
 
   <div class="load-row">
-    <input type="text" id="loadInput" placeholder="Have a code already? Paste it to load…">
+    <input type="text" id="loadInput" placeholder="Have a link already? Paste it to preview…">
     <button class="btn-ghost" id="loadBtn">Load</button>
   </div>
 
   <div class="result" id="result">
     <div class="preview-frame" id="previewFrame">
-      <img id="previewImg" alt="preview">
+      <img id="previewImg" alt="preview" crossorigin="anonymous">
     </div>
     <div class="link-block">
-      <div class="link-label">Image code</div>
+      <div class="link-label">Image link</div>
       <div class="link-code">
         <code id="linkCode">—</code>
         <button class="copy-btn" id="copyBtn">Copy</button>
@@ -256,7 +256,7 @@ footer{
     <div class="status" id="status"></div>
   </div>
 
-  <div class="hint">Codes are saved to this tool's shared storage — anyone with the code can load it back here.</div>
+  <div class="hint">Every upload gets a real public link — paste that link straight into your app.</div>
 </div>
 
 <footer>© 2026 Design By HK721. All rights reserved.</footer>
@@ -276,23 +276,19 @@ const dlPng = document.getElementById('dlPng');
 const setWall = document.getElementById('setWall');
 const statusEl = document.getElementById('status');
 
-let currentDataUrl = null;
-let currentCode = null;
+const IMGBB_API_KEY = '169753bcd7523627456391486bb4a498';
+
+let currentUrl = null;
 
 function setStatus(msg, type){
   statusEl.textContent = msg || '';
   statusEl.className = 'status' + (type ? ' ' + type : '');
 }
 
-function genCode(){
-  return 'WALL-' + Date.now().toString(36).toUpperCase().slice(-5) + Math.random().toString(36).slice(2,6).toUpperCase();
-}
-
-function showResult(dataUrl, code){
-  currentDataUrl = dataUrl;
-  currentCode = code;
-  previewImg.src = dataUrl;
-  linkCode.textContent = code;
+function showResult(url){
+  currentUrl = url;
+  previewImg.src = url;
+  linkCode.textContent = url;
   result.classList.add('show');
   const scan = document.createElement('div');
   scan.className = 'scan';
@@ -301,19 +297,18 @@ function showResult(dataUrl, code){
   setStatus('');
 }
 
-async function storeImage(dataUrl){
-  const code = genCode();
-  await window.storage.set(code, JSON.stringify({ dataUrl, createdAt: Date.now() }), true);
-  return code;
-}
-
-function readFileAsDataUrl(file){
-  return new Promise((resolve, reject)=>{
-    const reader = new FileReader();
-    reader.onload = ()=> resolve(reader.result);
-    reader.onerror = ()=> reject(new Error('Could not read file'));
-    reader.readAsDataURL(file);
+async function uploadToImgbb(file){
+  const formData = new FormData();
+  formData.append('image', file);
+  const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+    method: 'POST',
+    body: formData
   });
+  const json = await res.json();
+  if(!json.success){
+    throw new Error(json.error && json.error.message ? json.error.message : 'Upload failed');
+  }
+  return json.data.url;
 }
 
 async function handleFile(file){
@@ -324,13 +319,12 @@ async function handleFile(file){
   }
   setStatus('Uploading…');
   try{
-    const dataUrl = await readFileAsDataUrl(file);
-    const code = await storeImage(dataUrl);
-    showResult(dataUrl, code);
-    setStatus('Saved. Code is ready to copy.', 'ok');
+    const url = await uploadToImgbb(file);
+    showResult(url);
+    setStatus('Uploaded. Link is ready to copy.', 'ok');
   }catch(err){
     console.error(err);
-    setStatus('Upload failed. Try again.', 'err');
+    setStatus('Upload failed: ' + err.message, 'err');
   }
 }
 
@@ -348,45 +342,41 @@ dropzone.addEventListener('drop', e=>{
   handleFile(file);
 });
 
-loadBtn.addEventListener('click', async ()=>{
-  const code = loadInput.value.trim().toUpperCase();
-  if(!code){ setStatus('Enter a code first.', 'err'); result.classList.remove('show'); return; }
+loadBtn.addEventListener('click', ()=>{
+  const url = loadInput.value.trim();
+  if(!url){ setStatus('Paste a link first.', 'err'); return; }
   setStatus('Loading…');
-  try{
-    const res = await window.storage.get(code, true);
-    if(!res){ setStatus('No image found for that code.', 'err'); return; }
-    const data = JSON.parse(res.value);
-    showResult(data.dataUrl, code);
-    setStatus('Loaded.', 'ok');
-  }catch(err){
-    setStatus('No image found for that code.', 'err');
-  }
+  const testImg = new Image();
+  testImg.crossOrigin = 'anonymous';
+  testImg.onload = ()=>{ showResult(url); setStatus('Loaded.', 'ok'); };
+  testImg.onerror = ()=> setStatus('Could not load that link as an image.', 'err');
+  testImg.src = url;
 });
 loadInput.addEventListener('keydown', e=>{ if(e.key==='Enter') loadBtn.click(); });
 
 copyBtn.addEventListener('click', async ()=>{
-  if(!currentCode) return;
+  if(!currentUrl) return;
   try{
-    await navigator.clipboard.writeText(currentCode);
+    await navigator.clipboard.writeText(currentUrl);
     copyBtn.textContent = 'Copied';
     setTimeout(()=> copyBtn.textContent = 'Copy', 1400);
   }catch(e){
-    setStatus('Could not copy — select the code manually.', 'err');
+    setStatus('Could not copy — select the link manually.', 'err');
   }
 });
 
-function loadImageEl(dataUrl){
+function loadImageEl(url){
   return new Promise((resolve, reject)=>{
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = ()=> resolve(img);
     img.onerror = reject;
-    img.src = dataUrl;
+    img.src = url;
   });
 }
 
-async function toFormatBlob(dataUrl, mime){
-  const img = await loadImageEl(dataUrl);
+async function toFormatBlob(url, mime){
+  const img = await loadImageEl(url);
   const canvas = document.createElement('canvas');
   canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
